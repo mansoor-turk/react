@@ -1,0 +1,12 @@
+{
+    "name": "vite-frontent",
+    "version": "0.0.0",
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "serve": "vite preview"
+    },
+    "dependencies": {},
+    "devDependencies": {}
+  }
+  
