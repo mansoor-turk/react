@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 // Generate a JWT token
 const generateToken = (userId) => {
-    return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '2h' }); // 6-hour expiry
+    return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '8h' }); // 6-hour expiry
 };
 
 // Verify a JWT token
