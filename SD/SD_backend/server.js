@@ -10,6 +10,8 @@ const { text } = require('stream/consumers');
 const { generateToken } = require('./src/utils/authorization');
 const { authenticate } = require('./src/utils/authorization/authenticate');
 const { stat } = require('fs');
+const { type } = require('os');
+const assert = require('assert');
 
 const app = express();
 
@@ -29,7 +31,7 @@ const pool = new Pool({
 // Enhanced CORS configuration
 const corsOptions = {
     origin: process.env.CORS_ORIGIN || '*',
-    methods: ['POST', 'GET', 'PUT', 'DELETE'],
+    methods: ['POST', 'GET', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization']
 };
 
@@ -78,8 +80,6 @@ const upload = multer({
 app.get('/api-health', async (req, res) => {
 
     try {
-
-
         res.status(200).json({
             success: true,
             message: 'ok'
@@ -95,17 +95,18 @@ app.get('/api-health', async (req, res) => {
 
 app.post('/add-user', upload.single("profile"), authenticate, async (req, res) => {
     try {
- const { fullname, email, password, role, mobile, status, latitude, longitude, created_by, city, countrys, approved_by } = req.body;
+        const { fullname, email, password, role, mobile, status, latitude, longitude, created_by, city, countrys, approved_by } = req.body;
+     
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({ message: 'No data provided' });
+        }
 
-
- const base ='http://localhost:9900/static/images/'
- const file = req.file
- console.log("profile", file.filename)
- const sortedImage = `${base}${file.filename}`
- console.log("sortedImage", sortedImage)
- if (!file.filename) return res.status(400).json({ message: 'filename No data provided' });
-
-
+        const base = 'http://localhost:9900/static/images/'
+        const file = req.file
+        console.log("profile", file.filename)
+        const sortedImage = `${base}${file.filename}`
+        console.log("sortedImage", sortedImage)
+        if (!file.filename) return res.status(400).json({ message: 'filename No data provided' });
         // const file = req.file;
         if (!req.body) return res.status(400).json({ message: 'No data provided' });
 
@@ -116,95 +117,79 @@ app.post('/add-user', upload.single("profile"), authenticate, async (req, res) =
         }
         if (!city || !countrys) {
             return res.status(400).json({ message: 'city and country is required' });
-
         };
-
         const allowedFields = ['fullname', 'email', 'password', 'role', 'mobile', 'status', 'latitude', 'longitude', 'created_by', 'profile', 'city', 'countrys', 'approved_by'];
         const invalidFields = Object.keys(req.body).filter(field => !allowedFields.includes(field));
         if (invalidFields.length > 0) {
             return res.status(400).json({ message: `Invalid fields: ${invalidFields.join(', ')}` });
         }
-
-
         if (!req.file) {
             return res.status(400).json({ success: false, error: "No file uploaded" });
         }
-
-
- const already_check_email=`SELECT * FROM users WHERE email='${email}'`;
- const already_exit_email = await pool.query(already_check_email);
- if(already_exit_email.rows.length>0){
-  return res.status(400).json({ message: 'Email already exists' });  
- }
-  const query = {
+        const already_check_email = `SELECT * FROM users WHERE email='${email}'`;
+        const already_exit_email = await pool.query(already_check_email);
+        if (already_exit_email.rows.length > 0) {
+            return res.status(400).json({ message: 'Email already exists' });
+        }
+        const query = {
             text: `INSERT INTO public.users(
     fullname, email, password, role, latitude, longitude, profile,
     created_by, status, mobile,countrys, city ,approved_by) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12 ,$13) RETURNING * `,
-            values: [fullname, email, password, role, latitude, longitude, sortedImage, created_by, status, mobile, countrys, city, approved_by],
+            values: [fullname, email, password, role, latitude, longitude, sortedImage, created_by,
+                status, mobile, countrys, city, approved_by],
         };
 
         const result = await pool.query(query);
 
-        res.status(200).json({ message: 'user updated successfully',update_user: result.rows });
-        
+        res.status(200).json({ message: 'user updated successfully', update_user: result.rows });
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error', error: error.message });
     };
-}
-
-)
-
+})
 // update user --
+app.put('/update-users-data', upload.single("profile"), authenticate, async (req, res) => {
 
-app.put('/update-users-data',upload.single("profile")  ,authenticate, async (req,res) =>{
- const {fullname,email,password,role,latitude,longitude,profile,status,mobile,countrys,city, id,update_by , 
- }=req.body;
- const base ='http://localhost:9900/static/images/'
- const file =req?.file
- console.log("profile", req?.file)
-//  if (!file) return res.status(400).json({ message: 'No image uploaded' });
- const sortedImage = `${base}${file?.filename}`
- console.log("sortedImage", sortedImage)
-//  if (!req.body) return res.status(400).json({ message: 'No data provided' });
-//  if (!req.file) return res.status(400).json({ message: 'No image uploaded' });
- if(!fullname || !email || !password || !role || !mobile || status == null || !latitude || !longitude ||
-    !city || !countrys || !id
- ){ res.status(400).json({ message: 'All fields are required' });}
- console.log(
- req.body 
-)
-const allowedFields =['fullname','email','password','role','latitude','longitude','profile','status','mobile','countrys','city', 'id','update_by']
-const  invalidFields =Object.keys(req.body).filter(field => !allowedFields.includes(field));
-if (invalidFields.length > 0) {
-    return res.status(400).json({ message: `Invalid fields: ${invalidFields.join(', ')}` });
-  }
-try{
-let temp =sortedImage;
-if(req?.file == undefined || req?.file==null){
- const ex_profile=`select * from users where record_id='${id}' `;
- const existing_profile = await pool.query( ex_profile);
- 
-//  console.log("existing_profile", existing_profile.rows)
-//  return
- const ex_data= existing_profile.rows[0].profile ;
-   temp=ex_data
-   console.log("temp", temp);
-}
-//   const query ={
-//     text:` UPDATE public.users
-//   SET  fullname='${fullname}', email='${email}',
-//   password='${password}', role='${role}', 
-//   latitude='${latitude}' , longitude='${longitude}',
-//   profile= '${temp}' , 
-//    status= '${status}' ,
-//   mobile= '${mobile}', countrys= '${countrys}', 
-//   city= '${city}',update_by='${update_by }'  WHERE record_id='${id}' RETURNING *  ; `  
-// };
-  
-const query = {
-    text: `
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
+    const { fullname, email, password, role, latitude, longitude, profile, status, mobile, countrys, city, id, update_by,
+    } = req.body;
+    const base = 'http://localhost:9900/static/images/'
+    const file = req?.file
+    console.log("profile", req?.file)
+
+    const sortedImage = `${base}${file?.filename}`
+    console.log("sortedImage", sortedImage)
+    if (!fullname || !email || !password || !role || !mobile || status == null || !latitude || !longitude ||
+        !city || !countrys || !id
+    ) { res.status(400).json({ message: 'All fields are required' }); }
+    console.log(
+        req.body
+    )
+    const allowedFields = ['fullname', 'email', 'password', 'role', 'latitude', 'longitude', 'profile', 'status', 'mobile', 'countrys', 'city', 'id', 'update_by']
+    const invalidFields = Object.keys(req.body).filter(field => !allowedFields.includes(field));
+    if (invalidFields.length > 0) {
+        return res.status(400).json({ message: `Invalid fields: ${invalidFields.join(', ')}` });
+    }
+    try {
+        let temp = sortedImage;
+        if (req?.file == undefined || req?.file == null) {
+            const ex_profile = `select * from users where record_id='${id}' `;
+            const existing_profile = await pool.query(ex_profile);
+
+            //  console.log("existing_profile", existing_profile.rows)
+            //  return
+            const ex_data = existing_profile.rows[0].profile;
+            temp = ex_data
+            console.log("temp", temp);
+        }
+
+        const query = {
+            text: `
       UPDATE public.users SET
         fullname = $1,
         email = $2,
@@ -221,63 +206,46 @@ const query = {
       WHERE record_id = $13
       RETURNING *;
     `,
-    values: [
-      fullname,
-      email,
-      password,
-      role,
-      latitude,
-      longitude,
-      temp,
-      status,
-      mobile,
-      countrys,
-      city,
-      update_by,
-      id
-    ]
-  };
-  
+            values: [
+                fullname,
+                email,
+                password,
+                role,
+                latitude,
+                longitude,
+                temp,
+                status,
+                mobile,
+                countrys,
+                city,
+                update_by,
+                id
+            ]
+        };
+        console.log("MANSOOR");
+        console.log("req.file", req?.file);
 
-console.log("MANSOOR");
-   console.log("req.file", req?.file);
-
-  const result= await pool.query(query)
-  res.status(200).json({message: 'user updated sucessfully',user_update:result.rows});
-} catch (error){
-    console.error(error)
-    res.status(500).json({message:'Internal server error', error: error.message })
-}  
+        const result = await pool.query(query)
+        res.status(200).json({ message: 'user updated sucessfully', user_update: result.rows });
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error', error: error.message })
+    }
 
 });
 
-
-
 // end point ha update user kia api ha 4-27-2025
-
-
 app.get('/get-all-users', authenticate, async (req, res) => {
     try {
         const query = {
-
-            text: 
-  `SELECT DISTINCT users.record_id, users.fullname, users.email, roles.role_name, users.latitude, users.longitude,
-users.profile, users.created_by, users.creation_date, users.approved_by, countries.name AS countrys,  countries.country_code,
-users.city, users.mobile, users.status, users.password
-FROM users 
-INNER JOIN roles ON roles.role_id = users.role
-INNER JOIN countries ON countries.country_code = users.countrys;`
-
-//  `	select  users.record_id,  users.fullname,  users.email, roles.role_name, users.latitude, users.longitude,
-// users.profile, users.created_by,  users.creation_date, users.approved_by,countries.name as countrys ,
-// users.city ,users.mobile,users.status,users.password
-// from users 
-// inner join roles  on roles.role_id = users.role
-// inner join countries on countries.country_code =users.countrys
-// `
-
- 
-
+            text:
+                `SELECT c.name as country_name,ro.role_name,u.* from users AS u
+left join roles AS ro
+on u.role =ro.role_id
+left join countries c
+on
+c.country_code = u.countrys
+ `
         };
         const result = await pool.query(query);
         res.status(201).json({ message: 'user fetched sucessfully', user: result.rows });
@@ -290,36 +258,33 @@ INNER JOIN countries ON countries.country_code = users.countrys;`
 )
 // delete user ---
 app.delete('/delete-user/:id', authenticate, async (req, res) => {
-     const { id } = req.params; // Extract the ID from the request parameters
-     if (!id) return res.status(400).json({ message: 'No id provided' });
-     try {
-     const allowedFields = ['id'];
-     const invalidFields = Object.keys(req.params).filter(field => !allowedFields.includes(field));
-     if (invalidFields.length > 0) {
-     return res.status(400).json({ message: `Invalid fields: ${invalidFields.join(', ')}` });
-     }
-     if (!id) return res.status(400).json({ message: 'No id provided' });
-     const ex_id = `select * from users where record_id='${id}'`;
-     const existing_id = await pool.query(ex_id);
-     if (existing_id.rows.length === 0) {
-     return res.status(400).json({ message: 'user not found' });
-     }
+    const { id } = req.params; // Extract the ID from the request parameters
+    if (!id) return res.status(400).json({ message: 'No id provided' });
+    try {
+        const allowedFields = ['id'];
+        const invalidFields = Object.keys(req.params).filter(field => !allowedFields.includes(field));
+        if (invalidFields.length > 0) {
+            return res.status(400).json({ message: `Invalid fields: ${invalidFields.join(', ')}` });
+        }
+        if (!id) return res.status(400).json({ message: 'No id provided' });
+        const ex_id = `select * from users where record_id='${id}'`;
+        const existing_id = await pool.query(ex_id);
+        if (existing_id.rows.length === 0) {
+            return res.status(400).json({ message: 'user not found' });
+        }
 
-     const query = {
-         text: `DELETE FROM public.users
+        const query = {
+            text: `DELETE FROM public.users
 	WHERE record_id='${id}' RETURNING * ;`
-     };
-     const result = await pool.query(query);
-     res.status(200).json({ message: 'user deleted sucessfully', user_deleted: result.rows });
-     } catch (error) {
-     console.error(error);
-     res.status(500).json({ message: 'Internal server error in user deleted' });
-     } 
-} );
-
+        };
+        const result = await pool.query(query);
+        res.status(200).json({ message: 'user deleted sucessfully', user_deleted: result.rows });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error in user deleted' });
+    }
+});
 // roles start -- 
-
-
 app.get('/get-all-roles', authenticate, async (req, res) => {
     try {
         const query = {
@@ -332,9 +297,11 @@ app.get('/get-all-roles', authenticate, async (req, res) => {
         res.status(500).json({ message: 'Internal server error in roles fetched' });
     };
 })
-
 app.post('/add-role', authenticate, async (req, res) => {
-    if (!req.body) return res.status(400).json({ message: 'No data provided' });
+  
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
 
     try {
         const allowedFields = ['role_name', 'created_by', 'updated_by', 'status'];
@@ -371,37 +338,38 @@ app.post('/add-role', authenticate, async (req, res) => {
     }
 
 })
-
-
 app.post('/user-login', async (req, res) => {
     if (!req.body) return res.status(400).json({ message: 'No data provided' });
-
-
     try {
         const { email, password } = req.body;
         if (!email || !password) {
             return res.status(400).json({ message: 'All fields are required' });
         }
-
+      
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({ message: 'No data provided' });
+        }
 
         const query = {
             text: `SELECT * FROM users  WHERE email = $1
             AND password =$2 ;`,
             values: [email, password]
         };
+        console.log("query", query)
         const result = await pool.query(query);
-        if (result.rows.length === 0) {
-
-            return res.status(400).json({ message: 'user not found' });
+        console.log("result", result.rows.length)
+        if (result.rows.length == 0) {
+            return res.status(400).json({ message: 'Invalid email or password' });
         }
-        const token = generateToken(result?.rows?.record_id);
-        res.status(200).json({ message: 'user login sucessfully', user: result.rows, token });
+        if (result.rows.length > 0) {
+            const token = generateToken(result?.rows?.record_id);
+            return res.status(200).json({ message: 'user login sucessfully', user: result.rows, token });
+        }
     }
     catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Internal server error in user login' });
+        res.status(500).json({ message: 'Internal server error', error: error.message })
     }
-})
+});
 app.get('/get-all-lols', authenticate, async (req, res) => {
     try {
         const query = {
@@ -414,102 +382,183 @@ app.get('/get-all-lols', authenticate, async (req, res) => {
         res.status(500).json({ message: 'Internal server error in user fetched' });
     };
 });
-
 app.post('/add-store', upload.single("profile"), authenticate, async (req, res) => {
+    const base = 'http://localhost:9900/static/images/';
+    const file = req.file;
 
-    console.log("profile", req.file)
-    const base = 'http://localhost:9900/static/images/'
-    const file = req.file
+    if (!file) {
+        return res.status(400).json({ message: 'Image is required' });
+    }
 
-    const sortedImage = `${base}${file.filename}`
-    console.log("sortedImage", sortedImage)
-    if (!req.body) return res.status(400).json({ message: 'first fill the form' })
+  
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
+    const {
+        store_name, latitudes, longitude, store_type, address, phone,
+        email, website, store_owner_name, purchase_name, no_of_branches,
+        tax_ntn, location, created_by, approved_by,
+        date, creation_date, status
+    } = req.body;
+
+    const sortedImage = `${base}${file.filename}`;
+
+    if (
+        !store_name || !latitudes || !longitude || !store_type ||
+        !address || !phone || !email || !website || !store_owner_name ||
+        !purchase_name || !no_of_branches || !tax_ntn || !location ||
+        !created_by || !approved_by ||
+        !date || !creation_date || status == null
+    ) {
+        return res.status(400).json({ message: 'All fields are required' });
+    }
+
     try {
         const allowedFields = [
-            'image', 'store_name', 'latitudes', 'longitude', 'store_type', 'address', 'phone', 'email', 'website',
-            'store_owner_name', 'purchase_name', 'no_of_branches', 'tax_ntn', 'location', 'created_by', 'created_date',
-            'approved_by', 'date', 'creation_date', 'status'
+            'store_name', 'latitudes', 'longitude', 'store_type', 'address', 'phone', 'email', 'website',
+            'store_owner_name', 'purchase_name', 'no_of_branches', 'tax_ntn', 'location',
+            'created_by', 'approved_by', 'date', 'creation_date', 'status'
         ];
+
         const invalidFields = Object.keys(req.body).filter(field => !allowedFields.includes(field));
         if (invalidFields.length > 0) {
-            return res.status(400).json({
-                message: 'Invalid fields detected',
-                invalidFields: invalidFields
-            });
+            return res.status(400).json({ message: 'Invalid fields detected', invalidFields });
         }
 
-        // 2. Phir required fields check karo
-        const { image, store_name, latitudes, longitude,
-            store_type, address, phone, email,
-            website, store_owner_name, purchase_name,
-            no_of_branches, tax_ntn, location,
-            created_by, created_date, approved_by,
-            date, creation_date, status } = req.body;
-
-        if (!image == null || !store_name || !latitudes || !longitude ||
-            !store_type || !address || !phone || !email ||
-            !website || !store_owner_name || !purchase_name ||
-            !no_of_branches || !tax_ntn || !location ||
-            !created_by || !created_date || !approved_by ||
-            !date || !creation_date || status == null) {
-            return res.status(400).json({ message: 'All fields are required' })
-        }
-        const query = {
-            text: `INSERT INTO public.store(
-	 image, store_name, latitudes, longitude,
-	 store_type, address, phone, email, website,
-	 store_owner_name,
-	 purchase_name, no_of_branches, tax_ntn,
-	 location, created_by, created_date,
-	 approved_by, date, creation_date, status)
-     VALUES ($1, $2, $3, $4,
-     $5, $6, $7, $8, $9,
-     $10, $11, $12, $13,
-     $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
-            values: [sortedImage, store_name, latitudes, longitude,
-                store_type, address, phone, email,
-                website, store_owner_name, purchase_name,
-                no_of_branches, tax_ntn, location,
-                created_by, created_date, approved_by,
-                date, creation_date, status]
-
+        const already_check_query = {
+            text: `SELECT * FROM store WHERE phone=$1 OR email=$2 OR tax_ntn=$3`,
+            values: [phone, email, tax_ntn]
         };
-
-        const already_check_query = `select * FROM store where phone='${phone}' or email='${email}' or tax_ntn='${tax_ntn}'`;
         const is_already_exits = await pool.query(already_check_query);
         if (is_already_exits.rows.length > 0) {
-            return res.status(300).json({ message: 'store already exists' });
+            return res.status(300).json({ message: 'Store already exists' });
         }
-        const result = await pool.query(query);
-        res.status(200).json({ message: 'store added sucessfully', store: result.rows });
+
+        const insertQuery = {
+            text: `INSERT INTO public.store (
+        image, store_name, latitudes, longitude, store_type, address, phone, email, website,
+        store_owner_name, purchase_name, no_of_branches, tax_ntn, location,
+        created_by, approved_by, date, creation_date, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+                $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
+            values: [
+                sortedImage, store_name, latitudes, longitude,
+                store_type, address, phone, email, website,
+                store_owner_name, purchase_name, no_of_branches, tax_ntn,
+                location, created_by, approved_by,
+                date, creation_date, status
+            ]
+        };
+
+        const result = await pool.query(insertQuery);
+        res.status(200).json({ message: 'Store added successfully', store: result.rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Internal server error in store added' });
+        res.status(500).json({ message: 'Internal server error in store added', error: error.message });
+    }
+});
+app.put('/update-store', upload.single("profile"), authenticate, async (req, res) => {
+
+    const { store_name, latitudes, longitude, store_type, address, phone,
+        email, website,
+        store_owner_name, purchase_name, no_of_branches, tax_ntn,
+        location, status, record_id } = req.body;
+  
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+    const base = 'http://localhost:9900/static/images/';
+    const file = req?.file;
+    console.log("profile", file);
+    const sabkuch_fix = `${base}${file?.filename}`
+    console.log("sabkuch_fix", sabkuch_fix);
+    if (
+        !store_name || !latitudes || !longitude || !store_type ||
+        !address || !phone || !email || !website ||
+        !store_owner_name || !purchase_name ||
+        !no_of_branches || !tax_ntn ||
+        !location || !record_id || status == null
+    ) {
+        return res.status(400).json({ message: 'All fields are required ' });
+    }
+    // if (typeof status !== 'boolean') {
+    //     return res.status(400).json({ message: 'Status must be true or false only' });
+    // }
+    const alloweds = [
+        'store_name', 'latitudes', 'longitude', 'store_type', 'address', 'phone', 'email', 'website',
+        'store_owner_name', 'purchase_name', 'no_of_branches', 'tax_ntn', 'location', 'status', 'record_id', 'profile'
+    ];
+    const invalidFields = Object.keys(req.body).filter(field => !alloweds.includes(field));
+    if (invalidFields.length > 0) {
+        return res.status(400).json({ message: `Invalid fields:${invalidFields.join(',')}` });
+    }
+    try {
+        let tempimg = sabkuch_fix;
+        if (req?.file == undefined || req?.file == null) {
+            const exist_pr = `select * from store where record_id='store_b2801594-857b-482a-bb14-7457c52134df'`;
+            const existing_profile = await pool.query(exist_pr);
+            console.log("exist_data", existing_profile.rows[0].image)
+            const ex_data = existing_profile.rows[0].image;
+            tempimg = ex_data
+            console.log("tempimg", tempimg);
+        }
+        const query = {
+            text: `
+UPDATE public.store 
+ SET image='${tempimg}',
+ store_name='${store_name}',
+ latitudes ='${latitudes}', longitude ='${longitude}', store_type ='${store_type}', address ='${address}',
+ phone='${phone}',email ='${email}', website='${website}',
+ store_owner_name ='${store_owner_name}', purchase_name ='${purchase_name}', no_of_branches ='${no_of_branches}',tax_ntn='${tax_ntn}',
+ location ='${location}',status='${status}'
+ WHERE record_id ='${record_id}' RETURNING *;`,
+        };
+
+        const store_result = await pool.query(query);
+        res.status(200).json({ message: 'store updated sucessfully', store: store_result.rows });
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error', error: error.message })
     }
 
 });
-
 app.get('/get-store-data', authenticate, async (req, res) => {
+  
+    // if (!req.body || Object.keys(req.body).length === 0) {
+    //     return res.status(400).json({ message: 'No data provided' });
+    // }
     try {
-        const query = {
-            text: 'select * from store',
+        const query = {  
+            text: ' SELECT * FROM public.store where is_deleted =false',
         }
         const result = await pool.query(query);
         res.status(200).json({ message: 'store fetched sucessfully', store: result.rows });
+       if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'No store found' });
+        }
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error in store fetched' });
     }
 })
 app.get('/store-type', authenticate, async (req, res) => {
+  
+    // if (!req.body || Object.keys(req.body).length === 0) {
+    //     return res.status(400).json({ message: 'No data provided' });
+    // }
     try {
         const query = {
-
-            text: `select * from store_type`,
-
+            text: `SELECT * FROM store_type`,
         };
         const result = await pool.query(query);
         res.status(200).json({ message: 'store type fetched sucessfully', store_type: result.rows });
+        // ya tarika shi ha 
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'No store type found' });
+        }
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error in store type fetched' });
@@ -518,6 +567,11 @@ app.get('/store-type', authenticate, async (req, res) => {
 
 })
 app.post('/add-store-type', authenticate, async (req, res) => {
+  
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
     try {
         const { store_name, store_id, status } = req.body;
         if (!store_name || !status) {
@@ -543,8 +597,42 @@ app.post('/add-store-type', authenticate, async (req, res) => {
     }
 });
 
+app.patch('/delete-store',authenticate,async (req,res)=>{
+    const { record_id } = req.body;
+    if (!record_id) {
+        return res.status(400).json({ message: 'No Store Found' });
+    }
+    const allowed = ['record_id'];
+    const extraFields = Object.keys(req.body).filter(key => !allowed.includes(key));
+    if (extraFields.length > 0) {
+        return res.status(400).json({ message: `Invalid field(s): ${extraFields.join(', ')}` });
+    }
+
+    try{
+        const check_data = `SELECT * FROM public.store WHERE record_id = '${record_id}' AND is_deleted = false`;
+        const is_already_exits = await pool.query(check_data);
+
+        if (is_already_exits.rows.length === 0) {
+            return res.status(404).json({ message: 'No store found' });
+            }
+        const query = {
+            text: `UPDATE public.store
+set is_deleted = true  where record_id ='${record_id}' RETURNING *`
+        }
+        const result = await pool.query(query);
+        res.status(200).json({ message: 'store deleted sucessfully', store: result.rows ,result:result.rows.length});
+    } 
+    catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error in store deleted', error: error });
+    }
+})
+
 app.post('/add-stock', authenticate, async (req, res) => {
-    if (!req.body) return res.status(400).json({ message: 'No data provided' });
+  
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
     try {
         const { product_id, store_id, quantity, reserved, available, created_by, approved_by, date, stock_name, status } = req.body;
 
@@ -605,12 +693,12 @@ app.post('/add-stock', authenticate, async (req, res) => {
         res.status(500).json({ message: 'Internal server error in stock added' });
 
     }
-})
+});
 
 app.get('/get-stock', authenticate, async (req, res) => {
     try {
         const query = {
-            text: `select * from stock`,
+            text: `select * from stock where is_deleted = false`,
         };
         const result = await pool.query(query);
         res.status(200).json({ message: 'stock fetched sucessfully', stock: result.rows });
@@ -628,12 +716,13 @@ app.get('/get-stock', authenticate, async (req, res) => {
 //  purchase_orders
 // suppliers api start
 app.post('/add-suplier', authenticate, async (req, res) => {
-    if (!req.body) return res.status(400).status({ message: 'no data provided' });
+  
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
     try {
-        const { supplier_id, name, contact_person, email, phone, address, gst_number, created_at, status } = req.body;
-        if (typeof status !== 'boolean') {
-            return res.status(400).json({ message: 'Status must be true or false only' });
-        }
+        const { supplier_id, name, contact_person, email, phone, address, gst_number, countrys,status } = req.body;
         const allowedFields = [
             'supplier_id',
             'name',
@@ -642,16 +731,23 @@ app.post('/add-suplier', authenticate, async (req, res) => {
             'phone',
             'address',
             'gst_number',
-            'created_at',
+            'countrys',
             'status'
         ];
         const extraFields = Object.keys(req.body).filter(key => !allowedFields.includes(key));
         if (extraFields.length > 0) {
             return res.status(400).json({ message: `Invalid field(s): ${extraFields.join(', ')}` });
         }
-        if (!supplier_id || !name || !contact_person || !email || !phone || !address || !gst_number || !created_at || status == null) {
+        console.log("req.body", req.body)
+        if (!supplier_id || !name || !contact_person || !email || !phone || !address || !gst_number || !countrys || status == null) {
             return res.status(400).json({ message: 'all fields are required' });
         }
+
+        if (typeof status !== 'boolean') {
+            return res.status(400).json({ message: 'Status must be true or false only' });
+        } 
+
+
         // Check for existing supplier_id
         const checkSupplierIdQuery = {
             text: `SELECT 1 FROM public.suppliers WHERE supplier_id = $1`,
@@ -675,13 +771,15 @@ app.post('/add-suplier', authenticate, async (req, res) => {
             return res.status(400).json({ message: 'email already exists' });
         }
         const query = {
-            text: ` INSERT INTO public.suppliers(
-	 supplier_id, name, contact_person, email, phone, address, gst_number, created_at, status)
-	VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-            values: [supplier_id, name, contact_person, email, phone, address, gst_number, created_at, status]
+            text: `INSERT INTO public.suppliers(
+	 supplier_id, name, contact_person, email, phone, address, gst_number, countrys ,status)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9 ) RETURNING *`,
+            values: [supplier_id, name, contact_person, email, phone, address,gst_number,countrys,status]
         }
-        const result = await pool.query(query);
-        res.status(200).json({ message: 'supplier added sucessfully', supplier: result.rows });
+        const results = await pool.query(query);
+        // console.log("result ka data", results)
+      return  res.status(200).json({ message: 'supplier added sucessfully', supplier: results.rows });
+        // res.status(200).json({ message: 'supplier added sucessfully', supplier: results.rows });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error in supplier added' });
@@ -689,13 +787,99 @@ app.post('/add-suplier', authenticate, async (req, res) => {
 });
 //done 4-14-2025
 // suppliers api end
+// update supplier api start
+
+app.put('/update-supplier',authenticate ,async (req,res)=>{
+    const { name, contact_person, email, phone, address, gst_number, countrys, status ,id  }=req.body;
+
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
+   const allowedfields =[
+       'name', 'contact_person','email', 'phone','address', 'gst_number', 'countrys', 'status', 'id'
+   ]
+    const extrafields = Object.keys(req.body).filter(key => !allowedfields.includes(key));
+    if(extrafields.length > 0){
+        return res.status(400).json({message: `Invalid field(s): ${extrafields.join(', ')}`});
+    }
+    if (typeof status !== 'boolean') {
+        return res.status(400).json({ message: 'Status must be true or false only' });
+    } 
+    //  console.log("req.body", req.body)
+     
+    if (!name || !contact_person || !email || !phone || !address || !gst_number || !countrys || !id || status == null){
+        return res.status(400).json({ message: 'all fields are required' });
+    }
+      
+    try{
+    const query ={
+        text: `
+      UPDATE public.suppliers
+      SET  
+        name = $1,
+        contact_person = $2,
+        email = $3,
+        phone = $4,
+        address = $5,
+        gst_number = $6,
+        countrys = $7,
+        status = $8
+      WHERE record_id = $9 RETURNING *;
+    `,  values: [name, contact_person, email, phone, address, gst_number, countrys, status,id]
+    }
+      const result = await pool.query(query);
+      res.status(200).json({ message: `supplier updated sucessfully `, supplier: result.rows , count: result.rows.length});
+    // console.log("result ka data", result)
+} catch (error){
+    console.error(error);
+    // console.log("error ka data", error)
+        // console.log( error.message)
+    res.status(500).json({ message: 'Internal server error in supplier updated', error: error.message });
+}
+ 
+})
+//soft delete supplier api 
+app.patch('/delete-supplier', authenticate , async (req, res)=>{
+    const {id}= req.body;
+    if (!id) {
+        return res.status(400).json({ message: 'No supplier id provided' });
+    }
+ try{
+     const check_data = `SELECT * FROM public.suppliers WHERE record_id = $1 AND is_deleted = false`;
+     const chek_result = await pool.query(check_data , [id]);
+     if(chek_result.rows.length === 0){
+        return res.status(400).json({ message: `supplier not found`});
+     }
+      const allowedfields = ['id'];
+    const extrafields = Object.keys(req.body).filter(key => !allowedfields.includes(key));
+    if(extrafields.length > 0){
+        return res.status(400).json({message: `Invalid field(s): ${extrafields.join(', ')}`});
+    }
+ 
+     const query ={
+         text: ` UPDATE public.suppliers
+set is_deleted =true  where record_id ='${id}' RETURNING *`,
+     }
+const result = await pool.query(query);
+res.status(200).json({ message: `supplier deleted sucessfully `, supplier: result.rows , count: result.rows.length});
+if(result.rows.length === 0){
+    return res.status(400).json({ message: `supplier not found`});
+}
+
+ }
+ catch (error){
+    console.error(error);
+    res.status(500).json({ message: 'Internal server error in supplier deleted' });
+}
+})
 app.get('/get-supplier', authenticate, async (req, res) => {
     try {
         const query = {
-            text: `select * from suppliers`,
+            text: `SELECT * FROM public.suppliers where  is_deleted =false;`,
         };
         const result = await pool.query(query);
-        res.status(200).json({ message: 'supplier fetched sucessfully', supplier: result.rows });
+        res.status(200).json({ message: 'supplier fetched sucessfully', supplier: result.rows, count: result.rows.length });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error in supplier fetched' });
@@ -706,7 +890,7 @@ app.get('/get-supplier-data', authenticate, async (req, res) => {
     try {
 
         const query = {
-            text: `select * from suppliers order by created_at desc`,
+            text: `SELECT * FROM public.suppliers where  is_deleted =false;`,
         };
         const result = await pool.query(query);
         res.status(200).json({ message: 'supplier fetched sucessfully', supplier: result.rows });
@@ -715,12 +899,17 @@ app.get('/get-supplier-data', authenticate, async (req, res) => {
         res.status(500).json({ message: 'Internal server error in supplier fetched' });
     }
 });
+// suppliers api end
+// done 4-14-2025
+
 // end part 4-16-2025
 app.post('/add-product', authenticate, async (req, res) => {
-    if (!req.body) return res.status(400).json({ message: 'No data provided' });
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
     try {
         const {
-            product_id, name, description, sku, unit, purchase_price, selling_price, status } = req.body;
+            product_id, name, description, sku, unit, purchase_price, selling_price, status, updated_at } = req.body;
         if (typeof status !== 'boolean') {
             return res.status(400).json({ message: 'Status must be true or false only' });
         }
@@ -748,14 +937,22 @@ app.post('/add-product', authenticate, async (req, res) => {
             pool.query(already_insertsku)
         ])
         if (pidresult.rows.length > 0) {
-            return res.status(400).json({ message: 'product_id already exists' });
+            return res.status(400).json({ message: 'product_id already exists', product: pidresult.rows });
         }
         if (skuresult.rows.length > 0) {
-            return res.status(400).json({ message: 'sku already exists' });
+            return res.status(400).json({ message: 'sku already exists', product: skuresult.rows });
         }
-        const query = ` INSERT INTO public.products(
-            product_id, name, description, sku, unit, purchase_price, selling_price, status)
-            VALUES ( '${product_id}', '${name}', '${description}', '${sku}', '${unit}', '${purchase_price}', '${selling_price}','${status}' RETURNING *  );`
+
+        const already_exits = `select * from products where name ='${name} ' `;
+        const already_exits_result = await pool.query(already_exits);
+        if (already_exits_result.rows.length > 0) {
+            return res.status(400).json({ message: 'product already exists', product: already_exits_result.rows });
+        }
+        const query = {
+            text: ` INSERT INTO public.products(
+            product_id, name, description, sku, unit, purchase_price, selling_price, status ,updated_at)
+            VALUES ( '${product_id}', '${name}', '${description}', '${sku}', '${unit}', '${purchase_price}', '${selling_price}','${status}' ,null ) RETURNING *;`
+        }
         const result = await pool.query(query);
         if (result?.rowCount === 0) {
             return res.status(400).json({ message: 'Product not added' });
@@ -765,10 +962,159 @@ app.post('/add-product', authenticate, async (req, res) => {
         console.error(error);
         res.status(500).json({ message: 'Internal server error in product added', error: error.message });
     }
-}
-);
-// suppliers api end 
-// done 4-14-2025
+});
+
+// Update product
+app.put('/update_product', authenticate, async (req, res) => {
+    const { name, description, sku, unit, purchase_price, selling_price, status, id } = req.body;
+
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
+    if (!name || !description || !sku || !unit || !purchase_price || !selling_price || status === null || !id) {
+        return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    if (typeof status !== 'boolean') {
+        return res.status(400).json({ message: 'Status must be true or false only' });
+    }
+
+    const allowedFields = ['name', 'description', 'sku', 'unit', 'purchase_price', 'selling_price', 'status', 'id'];
+    const extraFields = Object.keys(req.body).filter(key => !allowedFields.includes(key));
+    if (extraFields.length > 0) {
+        return res.status(400).json({ message: `Invalid field(s): ${extraFields.join(', ')}` });
+    }
+
+    const trimmed = {
+        name: name.trim(),
+        description: description.trim(),
+        sku: sku.trim(),
+        unit: unit.trim(),
+        id: id.trim()
+    };
+
+    // Check for duplicate product name
+    const checkQuery = {
+        text: 'SELECT * FROM products WHERE name = $1 AND record_id != $2',
+        values: [trimmed.name, trimmed.id]
+    };
+
+    try {
+        const checkResult = await pool.query(checkQuery);
+        if (checkResult.rows.length > 0) {
+            return res.status(400).json({ message: 'Product name already exists' });
+        }
+
+        const updatedAt = new Date().toISOString();
+
+        const updateQuery = {
+            text: `UPDATE public.products
+                   SET name = $1,
+                       description = $2,
+                       sku = $3,
+                       unit = $4,
+                       purchase_price = $5,
+                       selling_price = $6,
+                       updated_at = $7,
+                       status = $8
+                   WHERE record_id = $9
+                   RETURNING *`,
+            values: [
+                trimmed.name,
+                trimmed.description,
+                trimmed.sku,
+                trimmed.unit,
+                parseFloat(purchase_price),
+                parseFloat(selling_price),
+                updatedAt,
+                status,
+                trimmed.id
+            ]
+        };
+
+        const result = await pool.query(updateQuery);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        res.status(200).json({
+            message: 'Product updated successfully',
+            product: result.rows[0]
+        });
+    } catch (error) {
+        console.error('Update error:', error);
+        res.status(500).json({
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// app.put('/update_product', authenticate, async (req, res) => {
+//     try {
+//         const { id, name, description, sku, unit, purchase_price, selling_price, status } = req.body;
+
+//         // Generate timestamp
+//         const updatedAt = new Date().toISOString();
+//         console.log("Attempting to set updated_at to:", updatedAt);
+
+//         const query = {
+//             text: `UPDATE public.products
+//                    SET name = $1,
+//                        description = $2,
+//                        sku = $3,
+//                        unit = $4,
+//                        purchase_price = $5,
+//                        selling_price = $6,
+//                        updated_at = $7,
+//                        status = $8
+//                    WHERE record_id = $9
+//                    RETURNING *`,
+//             values: [
+//                 name,
+//                 description,
+//                 sku,
+//                 unit,
+//                 parseFloat(purchase_price),
+//                 parseFloat(selling_price),
+//                 updatedAt,
+//                 status,
+//                 id
+//             ]
+//         };
+
+//         console.log("Safe parameterized query:", {
+//             text: query.text,
+//             values: query.values
+//         });
+
+//         const result = await pool.query(query);
+
+//         if (result.rows.length === 0) {
+//             return res.status(404).json({ message: 'Product not found' });
+//         }
+
+//         res.status(200).json({
+//             message: 'Product updated successfully',
+//             product: result.rows,
+//             count: result.rows.length
+//         });
+
+//     } catch (error) {
+//         console.error('Update error:', {
+//             message: error.message,
+//             stack: error.stack,
+//             detail: error.detail
+//         });
+//         res.status(500).json({
+//             message: 'Internal server error',
+//             error: error.message
+//         });
+//     }
+// });
+
 app.get('/get-product', authenticate, async (req, res) => {
     try {
         const query = {
@@ -776,7 +1122,6 @@ app.get('/get-product', authenticate, async (req, res) => {
         };
         const result = await pool.query(query);
         res.status(200).json({ message: 'product fetched sucessfully', product: result.rows });
-
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error in product fetched' });
@@ -798,26 +1143,38 @@ app.get('/product-id', authenticate, async (req, res) => {
         res.status(500).json({ message: 'Internal server error in product fetched' });
     }
 });
+
 // end part 4-16-2025
 // done 4-15-2025
 
 app.post('/purchase_order_items', authenticate, async (req, res) => {
     try {
-        const { item_id, product_id, quantity, unit_price, status } = req.body;
-        if (!req.body) return res.status(400).json({ message: 'No data provided' });
+        const { item_id, product_id, quantity, status ,price } = req.body;
+
+
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({ message: 'No data provided' });
+        }
+
         if (typeof status !== 'boolean') {
             return res.status(400).json({ message: 'Status must be true or false only' });
         }
-        if (!item_id || !product_id || !quantity || !unit_price || status == null) {
+        if (!item_id || !product_id || !quantity || status == null || !price) {
             return res.status(400).json({ message: 'all fields are required' });
         }
         const allowedfields = [
             'item_id',
             'product_id',
             'quantity',
-            'unit_price',
+            'price',
             'status'
         ];
+        if (item_id.length > 50) {
+            return res.status(400).json({
+                error: "item_id must be 50 characters or fewer.",
+            });
+        }
+
         const extraFields = Object.keys(!req.body).filter(key => !allowedfields.includes(key));
         if (extraFields.length > 0) {
             return res.status(400).json({ message: `Invalid field(s): ${extraFields.join(', ')}` });
@@ -836,18 +1193,18 @@ app.post('/purchase_order_items', authenticate, async (req, res) => {
         }
         const query = {
             text: `INSERT INTO public.purchase_order_items(
-	 item_id, product_id, quantity, unit_price,status)
-	VALUES ( $1, $2, $3, $4, $5) RETURNING *`,
-            values: [item_id, product_id, quantity, unit_price, status],
+	 item_id, product_id, quantity,status,price)
+	VALUES ( $1, $2, $3, $4, $5 ) RETURNING *`,
+            values: [item_id, product_id, quantity, status, price],
         };
         const result = await pool.query(query);
         if (result?.rowCount === 0) {
             return res.status(400).json({ message: 'Product not added' });
         }
-        res.status(200).json({ message: 'product added sucessfully', status: true, status_code: 200 });
+        res.status(200).json({ message: 'Order added sucessfully', status: true, status_code: 200 });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Internal server error in product added', error: error.message });
+        res.status(500).json({ message: 'Internal server error in order iteam added', error: error.message });
     }
 
 });
@@ -859,7 +1216,7 @@ app.get('/get-purchase_order_items', authenticate, async (req, res) => {
             text: `SELECT * FROM purchase_order_items`,
         };
         const result = await pool.query(query);
-        res.status(200).json({ message: 'product fetched sucessfully', product: result.rows });
+        res.status(200).json({ message: 'Order items fetched sucessfully', order: result.rows });
 
     } catch (error) {
         console.error(error);
@@ -867,12 +1224,88 @@ app.get('/get-purchase_order_items', authenticate, async (req, res) => {
     }
 }
 );
+// update purchase order items 
+app.put('/update-purchase_order_items',authenticate, async (req ,res )=>{
+ const {
+       product_id, quantity, status ,price ,record_id
+ } = req.body;
+
+ if (!req.body || Object.keys(req.body).length === 0) {
+     return res.status(400).json({ message: 'No data provided' });
+ }
+    if (!product_id || !quantity || status == null || !price) {
+        return res.status(400).json({ message: 'all fields are required' });
+    }
+
+    if (!record_id){
+        return res.status(400).json({ message: 'no order record found' });
+    }
+    
+ if(typeof status  !== 'boolean'){
+return res.status(400).json({ message: 'Status must be true or false only' }); 
+}
+const allowedfields = [
+    'product_id',
+    'quantity',
+    'status',
+    'price'
+];
+const extraFields = Object.keys(!req.body).filter(key => !allowedfields.includes(key));
+if (extraFields.length > 0) {
+    return res.status(400).json({ message: `Invalid field(s): ${extraFields.join(', ')}` });
+}
+console.log("payload", req.body);
+try{
+    const query ={
+        text:`UPDATE  public.purchase_order_items SET product_id ='${product_id}', quantity ='${quantity}',
+        status =${status}, price ='${price} where record_id = '${record_id}' RETURNING *`,
+    }
+    const result = await pool.query(query);
+    res.status(200).json({ message: 'purchase order items updated sucessfully', purchase_order_items: result.rows ,count: result.rows.length});
+}
+catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Internal server error in product fetched', error: error.message });
+}
+});
+
+// delete purchase order items
+// app.delete('/delete-purchase_order_items', authenticate, async (req, res) =>
+//     {
+//         const { record_id } = req.body;
+//         if (!req.body || Object.keys(req.body).length === 0) {
+//             return res.status(400).json({ message: 'No data provided' });
+//         }
+//         if (!record_id) {
+//             return res.status(400).json({ message: 'no order record found' });
+//         }
+//         const allowed = ['record_id'];
+//         const extraFields = Object.keys(req.body).filter(key => !allowed.includes(key));
+//         if (extraFields.length > 0) {
+//             return res.status(400).json({ message: `Invalid field(s): ${extraFields.join(', ')}` });
+//         }
+//         try{
+//             const query = {
+//                 text: `UPDATE public.purchase_order_items
+// set is_deleted = true  where record_id ='${record_id}' RETURNING *`
+//             }
+//             const result = await pool.query(query);
+//             res.status(200).json({ message: 'purchase order items deleted sucessfully', purchase_order_items: result.rows ,count: result.rows.length});
+//         } 
+//         catch (error) {
+//             console.error(error);
+//             res.status(500).json({ message: 'Internal server error in product fetched', error: error.message });
+//         }
+//     }
+// );
+
 
 app.post('/purchase_orders', authenticate, async (req, res) => {
     try {
         const { order_id, supplier_id, order_date, expected_delivery_date, total_amount, remarks, status } = req.body;
-
-        if (!req.body) return res.status(400).json({ message: 'No data provided' });
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({ message: 'No data provided' });
+        }
         if (typeof status !== 'boolean') {
             return res.status(400).json({ message: 'Status must be true or false only' });
         }
@@ -952,46 +1385,177 @@ app.get('/get-purchase_order', authenticate, async (req, res) => {
     }
 });
 
-app.get('/get-all-countries',authenticate ,async (req,res)=> {
-    try{
+app.get('/get-all-countries', authenticate, async (req, res) => {
+    try {
         const query = {
             text: `select * from  countries`,
         };
-    const result = await pool.query(query);
-    res.status(200).json({ message: 'country fetched sucessfully', country: result.rows });
-    } 
-    catch (error){
+        const result = await pool.query(query);
+        res.status(200).json({ message: 'country fetched sucessfully', country: result.rows });
+    }
+    catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error in country fetched, try again ', error: error.message });
     }
 })
 
-app.post('/get-all-cities',authenticate ,async (req,res) =>{
-    try{
-const {country_code} = req.body;
+app.post('/get-all-cities', authenticate, async (req, res) => {
+    try {
+        const { country_code } = req.body;
 
-if (!country_code) {
-    return res.status(400).json({ message: 'country_code is required' });
-}
-const query = {
-    text: 'SELECT * FROM cities WHERE country_code = $1',
-    values: [country_code],
-};
-// return  console.log("Received country_code:", country_code);
-const result = await pool.query(query);
-if (result.rows.length === 0) {
-    return res.status(404).json({ message: 'No cities found for the given country_code' });
-}
-res.status(200).json({
-    message: 'Cities fetched successfully',
-    cities: result.rows,
-});
+        if (!country_code) {
+            return res.status(400).json({ message: 'country_code is required' });
+        }
+        const query = {
+            text: 'SELECT * FROM cities WHERE country_code = $1',
+            values: [country_code],
+        };
+        // return  console.log("Received country_code:", country_code);
+        const result = await pool.query(query);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'No cities found for the given country_code' });
+        }
+        res.status(200).json({
+            message: 'Cities fetched successfully',
+            cities: result.rows,
+        });
     }
-    catch (error){
+    catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error in product added', error: error.message });
     }
-} )
+})
+
+app.put('/update-stock', authenticate, async (req, res) => {
+    const { product_id, store_id, quantity, reserved, available, date, status, stock_name, record_id } = req.body;
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
+    if (!product_id || !store_id || !quantity || !reserved || !available || !date || !stock_name || !record_id || status == null) {
+        return res.status(400).json({ message: 'all fields are required' });
+    }
+    if (typeof status !== 'boolean') {
+        return res.status(400).json({ message: 'Status must be true or false only' });
+    }
+    // ✅ Validate allowed fields in the request body 
+    const allowedFields = ['product_id', 'store_id', 'quantity', 'reserved', 'available', 'date', 'status', 'stock_name', 'record_id'];
+    const extraFields = Object.keys(req.body).filter(keys => !allowedFields.includes(keys));
+    if (extraFields.length > 0) {
+        return res.status(400).json({ message: `Invalid field(s): ${extraFields.join(', ')}` });
+    }
+    // created_by  approved_by
+    try {
+        const query = {
+            text: `UPDATE public.stock SET 
+	stock_name = $1,
+	product_id= $2, store_id=$3,quantity = $4, reserved = $5, 
+	available =$6, date =$7, status = $8
+      WHERE record_id=$9  RETURNING *`,
+            values: [stock_name, product_id, store_id, quantity, reserved, available,
+                date, status, record_id],
+        }
+        const result = await pool.query(query);
+        if (result?.rowCount === 0) {
+            return res.status(400).json({ message: 'Product not updated' });
+        }
+        res.status(200).json({ message: 'product updated sucessfully', status: true, status_code: 200, stock: result.rows });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error in stock updated', error: error.message });
+    }
+})
+// delete stock api 
+app.patch('/delete-stock', authenticate, async (req, res) => {
+    const { record_id } = req.body;
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+    try {
+        const checkQuery = `SELECT * FROM stock WHERE record_id = $1 AND is_deleted = false`;
+        const checkResult = await pool.query(checkQuery, [record_id]);
+        if (checkResult.rows.length === 0) {
+            return res.status(400).json({ message: 'Product not found or already deleted' });
+        }
+        const allowedFields = ['record_id'];
+        const invalidFields = Object.keys(req.body).filter(field => !allowedFields.includes(field));
+        if (invalidFields.length > 0) {
+            return res.status(400).json({ message: `Invalid field(s): ${invalidFields.join(', ')}` });
+        }
+        const query = {
+            text: ` update  public.stock SET 
+      is_deleted = true
+   WHERE record_id ='${record_id}' RETURNING *`,
+
+        }
+        const result = await pool.query(query);
+        if (result?.rowCount === 0) {
+            return res.status(400).json({ message: 'Product not deleted' });
+        }
+        res.status(200).json({ message: 'product deleted sucessfully', status: true, status_code: 200, stock: result.rows });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error in stock deleted', error: error.message });
+    }
+});
+app.get('/get-adress', authenticate, async (req, res) => {
+    try {
+        const query = {
+            text: ` select * from cities_address`,
+        }
+        const result = await pool.query(query);
+        res.status(200).json({ message: 'adress fetched sucessfully', adress: result.rows });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error in address fetched', error: error.message });
+    }
+});
+
+// done 5-12-2025
+
+app.post('/get-areas', authenticate, async (req, res) => {
+
+    const { cities_id } = req.body;
+
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
+    if (!cities_id) {
+        return res.status(400).json({ message: 'cities_id is required' });
+    }
+    try {
+        const query = {
+            text: `SELECT * FROM areas_address WHERE cities_id ='${cities_id}'`,
+        }
+        const result_areas = await pool.query(query);
+        if (result_areas.rows.length === 0) {
+            return res.status(404).json({ message: 'No areas found for the given cities_id' });
+        }
+        res.status(200).json({
+            message: 'Areas fetched successfully',
+            areas: result_areas.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error in areas fetched', error: error.message });
+    }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //routes end --
 //server listening
@@ -1003,3 +1567,6 @@ app.listen(PORT, () => {
 });
 
 module.exports = { app, upload, pool }
+
+
+ 
